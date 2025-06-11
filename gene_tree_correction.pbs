@@ -1,0 +1,124 @@
+#! /bin/bash
+#PBS -c s
+#PBS -j oe
+#PBS -m bae
+#PBS -N chaets_astral
+#PBS -l select=1:ncpus=10:mem=10gb
+#PBS -l walltime=03:00:00
+#PBS -M your.emailf@uni.edu.au
+#PBS -J 0-99
+
+ncpu=$(qstat -f $PBS_JOBID | grep "ReOUTList.ncpus" | cut -d= -f2 | sed 's/ //g') 
+s=$(if [ $ncpu == 1 ]; then echo ""; else echo "s"; fi)
+mem=$(qstat -f $PBS_JOBID | grep "ReOUTList.mem" | cut -d= -f2 | sed 's/ //g')
+echo $(date)
+echo "------------------------------------------------------"
+echo "This job is allocated "$ncpu" CPU core$s and $mem on "
+cat $PBS_NODEFILE | uniq
+echo "------------------------------------------------------"
+echo "PBS: Submitted to $PBS_QUEUE@$PBS_O_HOST"
+echo "PBS: Working directory is $PBS_O_WORKDIR"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "------------------------------------------------------"
+
+source /etc/profile.d/modules.sh
+shopt -s expand_aliases
+
+# Set working directory
+cd /scratch/astral/chaetodontidae
+# Define output directories
+OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
+OUTDIR2="/scratch/astral/chaetodontidae/2_collapsed_out"
+OUTDIR3="/scratch/astral/chaetodontidae/3_treeshrink_in"
+OUTDIR4="/scratch/astral/chaetodontidae/4_treeshrink_out"
+OUTDIR5="/scratch/astral/chaetodontidae/5_iqtree_out"
+OUTDIR6="/scratch/astral/chaetodontidae/6_collapsed_out"
+OUTDIR7="/scratch/astral/chaetodontidae/7_astral_out"
+
+#----------------------------------------------- 1. Generate individual UCE locus trees -----------------------------------------------#
+# Get PBS job index - Add PBS directive to header #PBS -J 0-99 or whatever number of iterations your system supports
+id=${PBS_ARRAY_INDEX}
+# Get UCE locus alignment files
+IN=($(ls /scratch/chaets/1_phyluce/7_alignments/chaetodontidae/corrected/chaets_corre75/*.nexus))
+# Set array job
+ALN=${IN[$id]}
+
+# Get UCE locus name
+UCE_NAME=$(basename $ALN .nexus)
+# Set your output directory to store gene trees
+OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
+
+# Load IQ-TREE2
+module load iqtree/2.3.4
+# Run maximum likelihood analyses for each UCE alignment with IQ-TREE for 1,000 ultrafast bootstrap replicates 
+iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G 
+
+
+#----------------------------------------------- 2. Collapse branches with bootstrap value <70 -----------------------------------------------#
+# Load newick utils and define output directory
+module load newick_utils/1.6
+
+# Loop through the tree files and collapse nodes with bootstrap support lower than 70%. You can adapt the cut-off based on your data.
+for tree in $OUTDIR1/uce-*.treefile; do
+    UCE_NAME=$(basename $tree .treefile);
+    echo "------ Collapsing nodes for $UCE_NAME ------"
+    nw_ed  $tree 'i & b<70' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
+done
+
+
+#----------------------------------------------- 3. Remove long branches from each locus tree and alignment -----------------------------------------------#
+# Load treeshrink
+module load treeshrink/1.3.9
+
+# Run treeshrink
+run_treeshrink.py -i $OUTDIR3 -t input.tree -a input.fasta -o $OUTDIR4
+
+
+#----------------------------------------------- 4. Rerun IQ-TREE2 with shrunk alignments -----------------------------------------------#
+# Get PBS job index - Add PBS directive to header #PBS -J 0-99 or whatever number of iterations your system supports
+id=${PBS_ARRAY_INDEX}
+# Get shrunk UCE locus alignment files
+IN=($(ls /scratch/astral/chaetodontidae/4_treeshrink_out/shrunk_aln/*.fasta))
+# Set array job
+ALN=${IN[$id]}
+
+# Get UCE locus name
+UCE_NAME=$(basename $ALN .fasta)
+
+# Load IQ-TREE2
+module load iqtree/2.3.4
+# Run maximum likelihood analyses for each shrunk UCE alignment with IQ-TREE for 1,000 ultrafast bootstrap replicates 
+iqtree2 -s $ALN --prefix ${OUTDIR5}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G 
+
+
+#----------------------------------------------- 5. Collapse branches with bootstrap value <70 -----------------------------------------------#
+#Load newick utils and define output directory
+module load newick_utils/1.6
+
+# Loop through the tree files and collapse nodes with bootstrap support lower than 70%. You can adapt the cut-off based on your data.
+for tree in $OUTDIR5/uce-*.treefile; do
+    # Store UCE locus name
+    UCE_NAME=$(basename $tree _shrunk.treefile);
+    echo "------ Collapsing for $UCE_NAME ------"
+    # Collapse nodes with bootstrap support lower than 70%
+    nw_ed  $tree 'i & b<70' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
+done
+
+#----------------------------------------------- 6. Run ASTRAL-III with final locus trees -----------------------------------------------#
+# Concatenate all the final locus trees
+cat $OUTDIR6/*.nwed.tre >> $OUTDIR6/chaets_GT_e75.tre
+
+# Load ASTRAL-III
+module load astral/5.7.8
+
+# Run ASTRAL-III
+# Depending on what you are interested in, you might want to have a look at the different options available in ASTRAL (eg. branch annotation, bootstrapping, polytomy tests)
+astral -i $OUTDIR6/chaets_GT_e75.tre -o $OUTDIR7/chaets_astral_core75.tre
+
+#----------------------------------------------- 7. Run concordance factor analysis (optionnal) -----------------------------------------------#
+# Load IQ-TREE2
+module load iqtree/2.3.4
+
+# Run concordance factor analysis
+iqtree2 -p $OUTDIR4/shrunk_aln -t $OUTDIR7/chaets_astral_core75.tre --gcf $OUTDIR6/chaets_GT_core75.tre --scf 100 --prefix $OUTDIR7/chaets_astral_core75_concord --cf-verbose -T 10
