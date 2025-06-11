@@ -7,7 +7,7 @@ This repository outlines a bioinformatic workflow to reduce gene tree errors pri
 1. Infer individual UCE locus trees
 2. Collapse nodes with bootstrap values <70 
 3. Remove long branches from each locus tree and alignment
-4.  Rerun IQ-TREE with shrunk alignments
+4.  Rerun IQ-TREE2 with shrunk alignments
 5. Collapse nodes with bootstrap values <70 
 6. Infer species tree with ASTRAL using final locus/gene trees
 7. Conduct concordance factor analysis on ASTRAL tree (optional)
@@ -33,11 +33,11 @@ cd /scratch/astral/chaetodontidae
 mkdir -p /scratch/astral/chaetodontidae/{1_iqtree_out,2_collapsed_out,4_treeshrink_out,5_iqtree_out,6_collapsed_out,7_astral_out,logs}
 ```
 ### 1. Infer individual UCE locus trees
-You could run IQ-TREE as is and infer gene trees one after the other or as an array job to speed things up. Adapt the parameters of your array job to how your job scheduler is set up. I can run 100 duplicates at a time. Submit your jobs from the logs directory we just created to keep all your logs together, there will be bunch of them if running as an array job.
-Inferring locus trees with IQ-TREE will look something like this:
+You could run IQ-TREE2 as is and infer gene trees one after the other or as an array job to speed things up. Adapt the parameters of your array job to how your job scheduler is set up. I can run 100 duplicates at a time. Submit your jobs from the logs directory we just created to keep all your logs together, there will be bunch of them if running as an array job.
+Inferring locus trees with IQ-TREE2 will look something like this:
 
 ```
-# load IQ-TREE
+# load IQ-TREE2
 module load iqtree/2.3.4
 
 # Get PBS job index - 875 UCE loci so I'll have to run 9 array jobs with 100 iterations
@@ -52,7 +52,7 @@ UCE_NAME=$(basename $ALN .nexus)
 # Set your output directory to store gene trees
 OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
 
-# Run maximum likelihood analyses for each UCE alignment with IQ-TREE for 1,000 ultrafast bootstrap replicates 
+# Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates 
 iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G
 ```
 
@@ -83,7 +83,7 @@ for tree in $OUTDIR1/uce-*.treefile; do
     UCE_NAME=$(basename $tree .treefile);
     echo "------ Collapsing for $UCE_NAME ------"
     # Collapse nodes with bootstrap support lower than 70%
-    nw_ed  $tree 'i & b<=69' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
+    nw_ed  $tree 'i & b<70' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
 done
 ```
 <br>
@@ -136,7 +136,7 @@ run_treeshrink.py -i $OUTDIR3 -t input.tree -a input.fasta -o $OUTDIR4
 ```
 
 Output directory will comprise separate UCE locus subdirectories with shrunk alignments, trees and an output.txt file specifying which taxa were dropped. You can adapt the cutoff with the flag -b (default is 5%).
-Now let's recover shrunk UCE alignments from the treeshrink output to rerun IQ-TREE
+Now let's recover shrunk UCE alignments from the treeshrink output to rerun IQ-TREE2
 
 ```
 # Make a new directory to store shrunk alignments
@@ -149,11 +149,11 @@ done
 ```
 <br>
 
-### 4. Rerun IQ-TREE with shrunk alignments 
+### 4. Rerun IQ-TREE2 with shrunk alignments 
 Similar to step 1 of the workflow
 
 ```
-# load IQ-TREE
+# load IQ-TREE2
 module load iqtree/2.3.4
 
 # Get PBS job index - 875 UCE loci so I'll have to run 9 array jobs with 100 iterations
@@ -168,7 +168,7 @@ UCE_NAME=$(basename $ALN .fasta)
 # Set your output directory to store gene trees
 OUTDIR5="/scratch/astral/chaetodontidae/5_iqtree_out"
 
-# Run maximum likelihood analyses for each UCE alignment with IQ-TREE for 1,000 ultrafast bootstrap replicates 
+# Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates 
 iqtree2 -s $ALN --prefix ${OUTDIR5}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G
 
 # If you want to combine it with a matched-pair test of symmetry
@@ -196,7 +196,7 @@ for tree in $OUTDIR5/uce-*.treefile; do
     UCE_NAME=$(basename $tree _shrunk.treefile);
     echo "------ Collapsing for $UCE_NAME ------"
     # Collapse nodes with bootstrap support lower than 70%
-    nw_ed  $tree 'i & b<=69' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
+    nw_ed  $tree 'i & b<70' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
 done
 ```
 <br>
@@ -218,10 +218,10 @@ astral -i $OUTDIR6/chaets_GT_e75.tre -o $OUTDIR7/chaets_astral_core75.tre
 ```
 
 ### 7. Concordance Factors Analysis (optional) 
-If you want to, you can run a concordance factor (CF) analysis with the shrunk alignments, ASTRAL tree and corrected gene trees to see if it changes the degree of conflict in gene and informative sites compared to CF analysis on your regular IQ-TREE species tree.
+If you want to, you can run a concordance factor (CF) analysis with the shrunk alignments, ASTRAL tree and corrected gene trees to see if it changes the degree of conflict in gene and informative sites compared to CF analysis on your regular IQ-TREE2 species tree.
 
 ```
-# Load IQ-TREE
+# Load IQ-TREE2
 module load iqtree/2.3.4
 
 # Run concordance factor analysis
