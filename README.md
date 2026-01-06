@@ -31,7 +31,7 @@ Prepare your working directory to keep things tidy (optional - if you thrive in 
 # Set working directory
 SOURCE="/scratch/chaets/6_astral"
 cd $SOURCE
-# Create and define output directories - purposely leaving out OUTDIR3 because it will be created by phyluce
+# Create and define output directories - purposely leaving out OUTDIR3 because it will be created by phyluce. I like to have those at the start of my script, it will save you a lot of time down the line and save you from the ghosts of typos path. 
 mkdir -p $SOURCE/{1_iqtree_out,2_collapsed_out,4_treeshrink_out,5_iqtree_out,6_collapsed_out,7_astral_out}
 OUTDIR1="$SOURCE/1_iqtree_out"
 OUTDIR2="$SOURCE/2_collapsed_out"
@@ -58,8 +58,8 @@ ALN=${IN[$id]}
 
 # Get UCE locus name
 UCE_NAME=$(basename $ALN .nexus)
-# Set your output directory to store gene trees
-OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
+# If you haven't already, set your output directory to store gene trees
+OUTDIR1="/scratch/chaets/6_astral/1_iqtree_out"
 
 # Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates. You might want to run SH-alrt branch test as support values will enable more conserved node collapsing later on because they are less likely to max out compared to bootstrap ones. 
 iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G
