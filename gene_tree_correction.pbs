@@ -26,28 +26,29 @@ source /etc/profile.d/modules.sh
 shopt -s expand_aliases
 
 # Set working directory
-cd /scratch/astral/chaetodontidae
-# Define output directories
-OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
-OUTDIR2="/scratch/astral/chaetodontidae/2_collapsed_out"
-OUTDIR3="/scratch/astral/chaetodontidae/3_treeshrink_in"
-OUTDIR4="/scratch/astral/chaetodontidae/4_treeshrink_out"
-OUTDIR5="/scratch/astral/chaetodontidae/5_iqtree_out"
-OUTDIR6="/scratch/astral/chaetodontidae/6_collapsed_out"
-OUTDIR7="/scratch/astral/chaetodontidae/7_astral_out"
+SOURCE="/scratch/chaets/6_astral"
+cd $SOURCE
+
+# Create and define output directories - purposely leaving out OUTDIR3 because it will be created by phyluce. I like to have those at the start of my script, it will save you a lot of time down the line and save you from the ghosts of typos path. 
+mkdir -p $SOURCE/{1_iqtree_out,2_collapsed_out,4_treeshrink_out,5_iqtree_out,6_collapsed_out,7_astral_out}
+OUTDIR1="$SOURCE/1_iqtree_out"
+OUTDIR2="$SOURCE/2_collapsed_out"
+OUTDIR3="$SOURCE/3_treeshrink_in"
+OUTDIR4="$SOURCE/4_treeshrink_out"
+OUTDIR5="$SOURCE/5_iqtree_out"
+OUTDIR6="$SOURCE/6_collapsed_out"
+OUTDIR7="$SOURCE/7_astral_out"
 
 #----------------------------------------------- 1. Generate individual UCE locus trees -----------------------------------------------#
 # Get PBS job index - Add PBS directive to header #PBS -J 0-99 or whatever number of iterations your system supports
 id=${PBS_ARRAY_INDEX}
 # Get UCE locus alignment files
-IN=($(ls /scratch/chaets/1_phyluce/7_alignments/chaetodontidae/corrected/chaets_corre75/*.nexus))
+IN=($(ls /scratch/chaets/4_phyluce/7_alignments/chaetodontidae/corrected/chaets_corre75/*.nexus))
 # Set array job
 ALN=${IN[$id]}
 
 # Get UCE locus name
 UCE_NAME=$(basename $ALN .nexus)
-# Set your output directory to store gene trees
-OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
 
 # Load IQ-TREE2
 module load iqtree/2.3.4
@@ -56,19 +57,19 @@ iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 
 
 
 #----------------------------------------------- 2. Collapse branches with bootstrap value <70 -----------------------------------------------#
-# Load newick utils and define output directory
+# Load newick utils - remember to remove the PBS directive for array job 
 module load newick_utils/1.6
 
 # Loop through the tree files and collapse nodes with bootstrap support lower than 70%. You can adapt the cut-off based on your data.
 for tree in $OUTDIR1/uce-*.treefile; do
     UCE_NAME=$(basename $tree .treefile);
     echo "------ Collapsing nodes for $UCE_NAME ------"
-    nw_ed  $tree 'i & b<70' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
+    nw_ed  $tree 'i & b<=69' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
 done
 
 
 #----------------------------------------------- 3. Remove long branches from each locus tree and alignment -----------------------------------------------#
-# Load treeshrink
+# Load treeshrink - remember to remove the PBS directive for array job 
 module load treeshrink/1.3.9
 
 # Run treeshrink
@@ -79,7 +80,7 @@ run_treeshrink.py -i $OUTDIR3 -t input.tree -a input.fasta -o $OUTDIR4
 # Get PBS job index - Add PBS directive to header #PBS -J 0-99 or whatever number of iterations your system supports
 id=${PBS_ARRAY_INDEX}
 # Get shrunk UCE locus alignment files
-IN=($(ls /scratch/astral/chaetodontidae/4_treeshrink_out/shrunk_aln/*.fasta))
+IN=($(ls /scratch/chaets/7_astral/4_treeshrink_out/shrunk_aln/*.fasta))
 # Set array job
 ALN=${IN[$id]}
 
@@ -93,7 +94,7 @@ iqtree2 -s $ALN --prefix ${OUTDIR5}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 
 
 
 #----------------------------------------------- 5. Collapse branches with bootstrap value <70 -----------------------------------------------#
-#Load newick utils and define output directory
+#Load newick utils - remember to remove the PBS directive for array job 
 module load newick_utils/1.6
 
 # Loop through the tree files and collapse nodes with bootstrap support lower than 70%. You can adapt the cut-off based on your data.
@@ -102,7 +103,7 @@ for tree in $OUTDIR5/uce-*.treefile; do
     UCE_NAME=$(basename $tree _shrunk.treefile);
     echo "------ Collapsing for $UCE_NAME ------"
     # Collapse nodes with bootstrap support lower than 70%
-    nw_ed  $tree 'i & b<70' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
+    nw_ed  $tree 'i & b<=69' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
 done
 
 #----------------------------------------------- 6. Run ASTRAL-III with final locus trees -----------------------------------------------#
