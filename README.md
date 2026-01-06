@@ -7,7 +7,7 @@ This repository outlines a bioinformatic workflow to reduce gene tree errors pri
 1. Infer individual UCE locus trees
 2. Collapse nodes with bootstrap values <70 
 3. Remove long branches from each locus tree and alignment
-4.  Rerun IQ-TREE2 with shrunk alignments
+4. Rerun IQ-TREE2 with shrunk alignments
 5. Collapse nodes with bootstrap values <70 
 6. Infer species tree with ASTRAL using final locus/gene trees
 7. Conduct concordance factor analysis on ASTRAL tree (optional)
@@ -16,21 +16,30 @@ This repository outlines a bioinformatic workflow to reduce gene tree errors pri
 
 ### Softwares and Data Requirements
 
-* IQ-TREE v2.2
+* IQ-TREE v2.3.4
 * Phyluce v1.7.3
+* Newick Utilities v1.6
 * treeshrink v1.3.9
 * R v3.x 
 * astral v5.7.8
 <br><br>
-* Alignment files - e.g. 75% complete matrix for 895 UCE loci
+* Alignment files - e.g. 75% complete alignment matrix for 895 UCE loci
   
 ## Running 
 Prepare your working directory to keep things tidy (optional - if you thrive in chaos then please proceed to step 1 directly)
 ```
-# Define working directory
-cd /scratch/astral/chaetodontidae
-# Create all the output directories for the workflow
-mkdir -p /scratch/astral/chaetodontidae/{1_iqtree_out,2_collapsed_out,4_treeshrink_out,5_iqtree_out,6_collapsed_out,7_astral_out,logs}
+# Set working directory
+SOURCE="/scratch/chaets/6_astral"
+cd $SOURCE
+# Create and define output directories - purposely leaving out OUTDIR3 because it will be created by phyluce
+mkdir -p $SOURCE/{1_iqtree_out,2_collapsed_out,4_treeshrink_out,5_iqtree_out,6_collapsed_out,7_astral_out}
+OUTDIR1="$SOURCE/1_iqtree_out"
+OUTDIR2="$SOURCE/2_collapsed_out"
+OUTDIR3="$SOURCE/3_treeshrink_in"
+OUTDIR4="$SOURCE/4_treeshrink_out"
+OUTDIR5="$SOURCE/5_iqtree_out"
+OUTDIR6="$SOURCE/6_collapsed_out"
+OUTDIR7="$SOURCE/7_astral_out"
 ```
 ### 1. Infer individual UCE locus trees
 You could run IQ-TREE2 as is and infer gene trees one after the other or as an array job to speed things up. Adapt the parameters of your array job to how your job scheduler is set up. I can run 100 duplicates at a time. Submit your jobs from the logs directory we just created to keep all your logs together, there will be bunch of them if running as an array job.
@@ -43,7 +52,7 @@ module load iqtree/2.3.4
 # Get PBS job index - 875 UCE loci so I'll have to run 9 array jobs with 100 iterations
 id=${PBS_ARRAY_INDEX}
 # Get UCE locus alignment files
-IN=($(ls /scratch/chaets/1_phyluce/7_alignments/chaetodontidae/corrected/final2/chaets_corre75/*.nexus))
+IN=($(ls /scratch/chaets/4_phyluce/7_alignments/chaetodontidae/corrected/chaets_corre75/*.nexus))
 # Set array job
 ALN=${IN[$id]}
 
@@ -52,20 +61,32 @@ UCE_NAME=$(basename $ALN .nexus)
 # Set your output directory to store gene trees
 OUTDIR1="/scratch/astral/chaetodontidae/1_iqtree_out"
 
-# Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates 
+# Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates. You might want to run SH-alrt branch test as support values will enable more conserved node collapsing later on because they are less likely to max out compared to bootstrap ones. 
 iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G
 ```
 
-You could conduct a matched-pair test of symmetry with the previous command to try to reduce systematic bias by removing partitions violating assumptions of stationary, reversible and homogeneity. There's a very interesting paper about it that I think is worth reading https://doi.org/10.1093/gbe/evz193
+You could also conduct a matched-pair test of symmetry with the previous command to try to reduce systematic bias by removing partitions violating assumptions of stationary, reversible and homogeneity. There's a very interesting paper about it that I think is worth reading https://doi.org/10.1093/gbe/evz193
 
 ```
 iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G --symtest-remove-bad
 ```
 
-Once all array jobs finished running, double check that there is the right number of gene trees in the output directory.
+Once all array jobs finished running, double check that all of your locus trees ran properly.
 
 ```
+# This should give you the same number as the number of loci present in your alignment matrix
 ls ${OUTDIR1}/*.treefile | wc -l
+
+# And this checks that runs were completed across all iterations. No news is good news here.
+for i in $OUTDIR1/*; do
+    # use IQ-TREE end of run time stamp
+    if grep -q "Date and Time:" "$i"; then
+        :  # do nothing
+    else
+        array=$(basename "$i")
+        echo "Array job $array failed"
+    fi
+done
 ```
 <br>
 
@@ -75,64 +96,55 @@ UCE loci are characterized by short sequences (~500bp) which can lead to fewer i
 ```
 # Load newick utils and define output directory
 module load newick_utils/1.6
-OUTDIR2="/scratch/astral/chaetodontidae/2_collapsed_out"
 
-# Loop through the tree files and collapse nodes with bootstrap support lower than 70%. You can adapt the cut-off based on your data.
+# Loop through the tree files and collapse nodes with bootstrap support lower than 70% (or if using SH-alrt values <80). You can adapt the cut-off based on your data.
 for tree in $OUTDIR1/uce-*.treefile; do
     # Store UCE locus name
     UCE_NAME=$(basename $tree .treefile);
-    echo "------ Collapsing for $UCE_NAME ------"
+    echo "Collapsing for $UCE_NAME"
     # Collapse nodes with bootstrap support lower than 70%
-    nw_ed  $tree 'i & b<70' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
+    nw_ed  $tree 'i & b<=69' o > $OUTDIR2/${UCE_NAME}.nwed.tre;
 done
 ```
 <br>
 
 ### 3. Remove long branches from each locus tree and alignment
 Something else we can do to reduce error in a set of gene trees is to check for abnormally long branches and trim off leaves that are "sticking out" across multiple trees but also removing the sequences yielding those long branches from UCE alignments.
-First, we'll need to prepare inputs for treeshrink. Let's start by converting UCE alignments into a fasta format to run treeshrink:
+First, we'll need to prepare inputs for treeshrink. Let's start by converting UCE alignments into a fasta format.
 
 ```
 # Load Phyluce
-module load phyluce
-# Set path to UCE alignment directory and output directory to store the prepared input data
-ALN_e75="/scratch/chaets/1_phyluce/7_alignments/chaetodontidae/corrected/chaets_core75"
-OUTDIR3="/scratch/astral/chaetodontidae/3_treeshrink_in"
+module load phyluce/1.7.3
+ALN="/scratch/chaets/4_phyluce/7_alignments/chaetodontidae/corrected/chaets_corre75"
 
+# convert to fasta
 phyluce_align_convert_one_align_to_another \
-    --alignments $ALN_e75 \
+    --alignments $ALN \
     --output $OUTDIR3 \
     --input-format nexus \
-    --output-format fasta
+    --output-format fasta \
+    --cores 4
 ```
 
-Treeshrink is a bit finicky on how it likes its input but basically it needs directories for each individual UCE loci containing corresponding alignment and tree files that must be named "input.fasta" and "input.tree" respectively. So let's do that by running this loop:
+Treeshrink likes its input to be set as one directory per UCE loci containing corresponding alignment (in fasta) and tree files AND they must be named "input.fasta" and "input.tree" respectively. Because why not? I guess. So let's do that:
 ```
-for aln in $OUTDIR3/uce-*.fasta; do
-    # Store UCE locus name
-    UCE_NAME=$(basename $aln .fasta);
-    echo "Preparing input for $UCE_NAME"
-    # Create directory for UCE locus
-    mkdir $OUTDIR3/$UCE_NAME;
-    # Move corresponding UCE alignment to new directory and rename it "input.fasta"
-    echo "Moving and renaming $aln to $OUTDIR3/$UCE_NAME/input.fasta"
-    mv $aln $OUTDIR3/$UCE_NAME/input.fasta;
-    # Copy corresponding locus tree to new directory and rename it "input.tree"
-    echo "Copying shrunk tree ${UCE_NAME}.nwed.tre to $OUTDIR3/$UCE_NAME/input.tree"
-    cp $OUTDIR2/${UCE_NAME}.nwed.tre $OUTDIR3/$UCE_NAME/input.tree
+for loci in $OUTDIR2/*; do
+    name=$(basename $loci .nwed.tre)
+    mkdir -p $OUTDIR3/${name}
+    mv $OUTDIR3/${name}.fasta $OUTDIR3/${name}/input.fasta
+    ln -s $OUTDIR2/${name}.nwed.tre $OUTDIR3/${name}/input.tree
 done
 ```
 
-Let's run treeshrink! Note that treeshrink is only compatible with 3.x version of R.
+Let's now run treeshrink! Note that treeshrink is only compatible with 3.x version of R.
 
 ```
 # Load treeshrink
 module load treeshrink/1.3.9
-# Give path to output directory to store shrunk trees
-OUTDIR4="/scratch/astral/chaetodontidae/4_treeshrink_out"
 
-# run treeshrink
+# Run treeshrink - remember to remove the PBS directive for array job 
 run_treeshrink.py -i $OUTDIR3 -t input.tree -a input.fasta -o $OUTDIR4
+
 ```
 
 Output directory will comprise separate UCE locus subdirectories with shrunk alignments, trees and an output.txt file specifying which taxa were dropped. You can adapt the cutoff with the flag -b (default is 5%).
