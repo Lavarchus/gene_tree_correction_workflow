@@ -148,15 +148,14 @@ run_treeshrink.py -i $OUTDIR3 -t input.tree -a input.fasta -o $OUTDIR4
 ```
 
 Output directory will comprise separate UCE locus subdirectories with shrunk alignments, trees and an output.txt file specifying which taxa were dropped. You can adapt the cutoff with the flag -b (default is 5%).
-Now let's recover shrunk UCE alignments from the treeshrink output to rerun IQ-TREE2
+Now let's recover shrunk UCE alignments from the treeshrink output to input into IQ-TREE2
 
 ```
-# Make a new directory to store shrunk alignments
-mkdir $OUTDIR4/shrunk_aln
-
-for dir in $OUTDIR4/uce-*; do
-    UCE_NAME=$(basename $dir)
-    ln -s $dir/output.fasta $OUTDIR4/shrunk_aln/${UCE_NAME}_shrunk.fasta
+# Put all the alignments in a new directory
+for fasta in $OUTDIR4/uce-*; do
+     name=$(basename $fasta)
+     mkdir -p $OUTDIR4/shrunk_aln
+     ln -s $fasta/output.fasta $OUTDIR4/shrunk_aln/${name}.fasta
 done
 ```
 <br>
@@ -171,44 +170,51 @@ module load iqtree/2.3.4
 # Get PBS job index - 875 UCE loci so I'll have to run 9 array jobs with 100 iterations
 id=${PBS_ARRAY_INDEX}
 # Get shrunk UCE locus alignment files
-IN=($(ls /scratch/astral/chaetodontidae/4_treeshrink_out/shrunk_aln/*.fasta))
+IN=($(ls $OUTDIR4/shrunk_aln/*.fasta))
 # Set array job
 ALN=${IN[$id]}
 
 # Get UCE locus name
 UCE_NAME=$(basename $ALN .fasta)
 # Set your output directory to store gene trees
-OUTDIR5="/scratch/astral/chaetodontidae/5_iqtree_out"
+OUTDIR5="/scratch/chaets/6_astral/5_iqtree_out"
 
-# Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates 
+# Run maximum likelihood analyses for each UCE alignment with IQ-TREE2 for 1,000 ultrafast bootstrap replicates (or SH-alrt)
 iqtree2 -s $ALN --prefix ${OUTDIR5}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G
 
 # If you want to combine it with a matched-pair test of symmetry
 iqtree2 -s $ALN --prefix ${OUTDIR1}/${UCE_NAME} -B 1000 -T AUTO --threads-max 4 --mem 2G --symtest-remove-bad
 ```
 
-Once all array jobs finished running, double check that there is the right number of gene trees in the output directory.
+Same as before, check that everything ran properly
 
 ```
-ls ${OUTDIR5}/*.treefile | wc -l
+for i in $OUTDIR5/*; do
+  # use IQ-TREE end of run time stamp
+  if grep -q "Date and Time:" "$i"; then
+      :  # do nothing
+    else
+      array=$(basename "$i")
+      echo "Array job $array failed"
+   fi
+done
 ```
 <br>
 
 ### 5. Collapse branches in locus trees with bootstrap value <70
-Let's do a second round of collapsing branches with low bootstrap support in the newly generated locus trees.
+Let's do a second round of collapsing branches with low bootstrap (or SH-arlt <80) support in the newly generated locus trees.
 
 ```
-# Load newick utils and define output directory
+# Load newick utils
 module load newick_utils/1.6
-OUTDIR6="/scratch/astral/chaetodontidae/6_collapsed_out"
 
 # Loop through the tree files and collapse nodes with bootstrap support lower than 70%. You can adapt the cut-off based on your data.
 for tree in $OUTDIR5/uce-*.treefile; do
     # Store UCE locus name
     UCE_NAME=$(basename $tree _shrunk.treefile);
-    echo "------ Collapsing for $UCE_NAME ------"
+    echo "Collapsing for $UCE_NAME"
     # Collapse nodes with bootstrap support lower than 70%
-    nw_ed  $tree 'i & b<70' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
+    nw_ed  $tree 'i & b<=69' o > $OUTDIR6/${UCE_NAME}.nwed.tre;
 done
 ```
 <br>
