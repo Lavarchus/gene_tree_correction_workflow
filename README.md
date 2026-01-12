@@ -78,7 +78,7 @@ Once all array jobs finished running, double check that all of your locus trees 
 ls ${OUTDIR1}/*.treefile | wc -l
 
 # And this checks that runs were completed across all iterations. No news is good news here.
-for i in $OUTDIR1/*; do
+for i in path/to/directory/with/log/files/*; do
     # use IQ-TREE end of run time stamp
     if grep -q "Date and Time:" "$i"; then
         :  # do nothing
